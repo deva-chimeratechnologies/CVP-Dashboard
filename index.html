@@ -691,6 +691,17 @@ function downloadSample() {
     ]),
     'Name and Designation');
 
+  // Sheet 4: resource allocation — exact columns processBuffer() reads (allocSheetName regex: /resource|allocat/i)
+  // Primary table A–L; parser picks PROJECT ID (A), PROJECT NAME (B), Start Date (C), End Date (D),
+  // Status (E), Member 1–5 (H–L). Columns F–G (Total/Current Sprint) are optional metadata.
+  XLSX.utils.book_append_sheet(wb,
+    XLSX.utils.aoa_to_sheet([
+      ['PROJECT ID','PROJECT NAME','Start Date','End Date','Status','Total Sprints','Current Sprint','Member 1','Member 2','Member 3','Member 4','Member 5'],
+      ['PR-999','Lilly/FY26-27/CVP - Example Project','01/09/2026','31/03/2027','In Progress','4','1','John Doe','Jane Smith','Alice Kumar','Bob Nair','Carol Singh'],
+      ['PR-998','Lilly/FY26-27/CVP - Another Project','15/09/2026','NA','Yet to Start','2','','John Doe','Alice Kumar','','',''],
+    ]),
+    'Project and Resource Allocation');
+
   const out = XLSX.write(wb, { bookType:'xlsx', type:'array' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([out], { type:'application/octet-stream' }));
@@ -1034,7 +1045,7 @@ function renderKPIs() {
   if (utilEl) {
     const uCol = teamUtil >= 90 ? '#22C55E' : teamUtil >= 70 ? '#F59E0B' : '#EF4444';
     utilEl.innerHTML = teamExp > 0
-      ? `Expected: ${teamExp.toLocaleString()}h &nbsp;<span style="color:${uCol};font-weight:700">${teamUtil}% utilized</span>`
+      ? `Expected: ${teamExp.toLocaleString()}h &nbsp;<span style="color:${uCol};font-weight:700">${teamUtil}% variance</span>`
       : '';
   }
 }
@@ -1402,7 +1413,8 @@ function renderPeople() {
   let list = all;
   if (S.desigFilter) list = list.filter(p => (p.desig||'Unspecified') === S.desigFilter);
   if (q)    list = list.filter(p => p.name.toLowerCase().includes(q));
-  if (proj) list = list.filter(p => p.pids.includes(proj));
+  // check both logged projects (Sheet 1) and allocated projects (Sheet 4)
+  if (proj) list = list.filter(p => p.pids.includes(proj) || (S.allocations[proj]||[]).includes(p.name));
   list.sort((a, b) => S.sortDesc ? b.th - a.th : a.th - b.th);
 
   const g = document.getElementById('people-grid');
@@ -2015,10 +2027,11 @@ function closeOverlay(id, e) {
    POPULATE SELECTS
 ─────────────────────────────────────────────── */
 function populateSelects() {
-  const pids = [...new Set(S.all.map(r=>r.pid))];
+  // merge PIDs from Sheet 1 (logged) and Sheet 4 (allocated) so all projects appear
+  const pids = [...new Set([...S.all.map(r=>r.pid), ...Object.keys(S.allocMeta)])].filter(Boolean);
   const grps = [...new Set(S.all.map(r=>r.group).filter(Boolean))];
   document.getElementById('p-proj').innerHTML = '<option value="">All Projects</option>' +
-    pids.map(id=>`<option value="${id}">${SHORT[id]||id}</option>`).join('');
+    pids.map(id=>`<option value="${id}">${getProjectName(id)}</option>`).join('');
   document.getElementById('prj-grp').innerHTML = '<option value="">All Groups</option>' +
     grps.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`).join('');
 }
