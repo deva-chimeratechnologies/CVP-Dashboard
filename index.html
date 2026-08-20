@@ -1711,6 +1711,8 @@ function buildOvGantt() {
   });
   if (!data.length) return;
 
+  data.sort((a, b) => a.start - b.start);
+
   const isSmall = window.innerWidth < 640;
   const barH = isSmall ? 28 : 34;
   const wrap = document.getElementById('ov-gantt-wrap');
@@ -1810,6 +1812,8 @@ function buildProjGantt() {
       color: underResourced ? '#EF4444' : '#3B82F6' });
   });
   if (!data.length) return;
+
+  data.sort((a, b) => a.start - b.start);
 
   const allTs = data.flatMap(d => [d.start.getTime(), d.end.getTime()]);
   const gmin  = new Date(Math.min(...allTs));
