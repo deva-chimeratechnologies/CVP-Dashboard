@@ -80,8 +80,8 @@
     .sec-title{font-size:10px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--gray-500);margin-bottom:12px}
 
     /* ── KPI GRID ── */
-    .kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:0 0 20px}
-    @media(max-width:900px){.kpi-grid{grid-template-columns:repeat(3,1fr)}}
+    .kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:0 0 20px}
+    @media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(3,1fr)}}
     @media(max-width:560px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
     .kpi-card{
       background:var(--white);border-radius:var(--r-md);padding:18px 16px;
@@ -390,6 +390,12 @@
             <div class="kpi-lbl">Non-Billable Hours</div>
             <div class="kpi-sub"><span class="badge o" id="k-nonbillpct">–</span></div>
           </div>
+          <div class="kpi-card">
+            <span class="kpi-icon">🔘</span>
+            <div class="kpi-val" style="color:var(--primary)" id="k-tbc">–</div>
+            <div class="kpi-lbl">Projects TBC</div>
+            <div class="kpi-sub" id="k-tbc-sub" style="margin-top:4px">–</div>
+          </div>
         </div>
         <!-- filter strip: uses Sheet 4 (allocMeta) status categories -->
         <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
@@ -408,8 +414,8 @@
             </div>
           </div>
           <div class="chart-card" style="flex:0 0 calc(50% - 7px);min-width:280px;box-sizing:border-box;display:flex;flex-direction:column">
-            <div class="cc-title" style="margin-bottom:4px">🚨 Under-Resourced Projects</div>
-            <div class="cc-sub" style="margin-bottom:12px">Projects with fewer than 5 allocated members</div>
+            <div class="cc-title" style="margin-bottom:4px">� Over-Resourced Projects</div>
+            <div class="cc-sub" style="margin-bottom:12px">Projects with &gt;5 combined allocated &amp; active members</div>
             <div style="height:220px;overflow-y:auto;flex-shrink:0">
               <table class="ct" id="underres-table"></table>
             </div>
@@ -419,14 +425,28 @@
         <div class="sec-title" style="margin-top:22px;margin-bottom:10px">Projects</div>
         <div id="ov-proj-strip" style="display:flex;gap:12px;overflow-x:auto;padding-bottom:12px;scroll-snap-type:x mandatory"></div>
         <div class="chart-card" style="margin-top:20px">
-          <div class="cc-title">📅 Project Timeline</div>
-          <div class="cc-sub">All projects from Sheet 4 — scroll vertically &amp; horizontally</div>
-          <div id="ov-gantt-wrap" style="overflow:auto;position:relative"><canvas id="ov-gantt-canvas"></canvas></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+            <div class="cc-title" style="margin-bottom:0">📅 Project Timeline</div>
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer;user-select:none">
+              <span style="font-size:11px;font-weight:600;color:var(--gray-700)">PR-TBC Only</span>
+              <span id="gf-tbc-track" onclick="setGanttFilter(S.ganttFilter==='tbc'?'all':'tbc')"
+                style="display:inline-block;width:36px;height:20px;border-radius:20px;background:var(--gray-300);position:relative;transition:background .2s;cursor:pointer">
+                <span id="gf-tbc-thumb"
+                  style="position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.25);transition:transform .2s"></span>
+              </span>
+            </label>
+          </div>
+          <div class="cc-sub">All projects — scroll vertically &amp; horizontally</div>
+          <div id="ov-gantt-wrap" style="overflow:auto;position:relative;margin-top:10px"><canvas id="ov-gantt-canvas"></canvas></div>
         </div>
         <div class="chart-card" style="margin-top:20px">
-          <div class="cc-title">Monthly Hours Trend</div>
-          <div class="cc-sub">Total hours logged per month</div>
-          <div style="height:280px;position:relative"><canvas id="chart-monthly"></canvas></div>
+          <div class="cc-title">📋 Project vs Timesheet</div>
+          <div class="cc-sub" style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="display:inline-block;width:22px;height:0;border-top:2px dashed #9A9A9A"></span>Planned Timeline</span>
+            <span style="display:inline-flex;align-items:center;gap:5px"><span style="display:inline-block;width:22px;height:9px;background:#FF4A03BB;border-radius:2px"></span>Logged Activity</span>
+          </div>
+          <div id="ts-gantt-wrap" style="overflow:auto;position:relative;margin-top:12px"><canvas id="ts-gantt-canvas"></canvas></div>
+          <div id="ts-gantt-sum" style="display:none"></div>
         </div>
       </div>
 
@@ -643,10 +663,11 @@ const S = {
   sortDesc: true,
   tab: 'overview',
   costUnlocked: false,  // resets on page reload
-  charts: { donut:null, proj:null, person:null, gantt:null, projGantt:null, effort:null, monthly:null, ovGantt:null },
+  charts: { donut:null, proj:null, person:null, gantt:null, projGantt:null, effort:null, monthly:null, ovGantt:null, tsGantt:null },
   allocations: {},
   allocMeta:    {},
-  overviewFilter: 'all'
+  overviewFilter: 'all',
+  ganttFilter: 'all'
 };
 
 // ─── CONFIGURE FILE PATH HERE (relative to this HTML file) ───────────
@@ -985,16 +1006,26 @@ function renderKPIs() {
   const totalMembers = Object.keys(S.desig).length || te;
   setText('k-people', totalMembers);
   const kpSub = document.getElementById('k-people-sub');
-  if (kpSub) kpSub.textContent = te !== totalMembers ? te + ' active in period' : 'all active in period';
+  if (kpSub) kpSub.textContent = '';
 
-  // Project Status KPI — ONLY from Sheet 4 (allocMeta); no fallback to Sheet 2
+  // Project Status KPI — exclude TBC projects; show them in a separate KPI
   const allocVals = Object.values(S.allocMeta);
   const statusSrc = allocVals.length > 0 ? allocVals : Object.values(S.projMeta);
-  const allMeta = statusSrc;
+  const tbcPids   = [...new Set([...Object.keys(S.allocMeta), ...Object.keys(S.projMeta)])]
+    .filter(pid => pid.toUpperCase().includes('TBC'));
+  const allMeta   = statusSrc.filter((m, idx) => {
+    const pid = Object.keys(allocVals.length > 0 ? S.allocMeta : S.projMeta)[idx];
+    return !(pid || '').toUpperCase().includes('TBC');
+  });
   const cntYet  = allMeta.filter(m => !m.status || /yet|not.start|plan|backlog|upcom|new/i.test(m.status)).length;
   const cntProg = allMeta.filter(m => /active|progress|ongoing|started|running|open/i.test(m.status)).length;
   const cntDone = allMeta.filter(m => /complet|done|finish|closed|deliver/i.test(m.status)).length;
   setText('k-proj-status-count', allMeta.length || '–');
+  setText('k-tbc', tbcPids.length || '–');
+  const tbcSub = document.getElementById('k-tbc-sub');
+  if (tbcSub) tbcSub.textContent = tbcPids.length
+    ? tbcPids.slice(0,3).join(', ') + (tbcPids.length > 3 ? ` +${tbcPids.length-3}` : '')
+    : 'None';
   const sbEl = document.getElementById('k-status-breakdown');
   if (sbEl) sbEl.innerHTML = [
     { lbl:'Yet to Start', val:cntYet,  col:'#6366F1' },
@@ -1023,11 +1054,11 @@ function renderKPIs() {
           <span style="font-family:'Jost',sans-serif;font-size:20px;font-weight:800;line-height:1">${completedPids.length}</span>
           <span style="font-size:10px;opacity:.7">Done</span>
         </div>
-        <div style="font-size:9px;opacity:.5;margin-top:3px">${total} in Sheet 2 register</div>`;
+        <div style="font-size:9px;opacity:.5;margin-top:3px">${total} in project register</div>`;
     } else if (hasStatus) {
-      psEl.innerHTML = `<div style="font-size:11px;opacity:.75;margin-top:5px">${activePids.length} Active in register</div>`;
+      psEl.innerHTML = `<div style="font-size:11px;opacity:.75;margin-top:5px">${activePids.length} Active</div>`;
     } else {
-      psEl.innerHTML = `<div style="font-size:11px;opacity:.65;margin-top:5px">Upload Sheet 2 for status</div>`;
+      psEl.innerHTML = `<div style="font-size:11px;opacity:.65;margin-top:5px">Upload project data for status</div>`;
     }
   }
   setText('k-hours',    th.toLocaleString() + 'h');
@@ -1180,6 +1211,15 @@ function setOverviewFilter(f) {
   renderOverview();
 }
 
+function setGanttFilter(f) {
+  S.ganttFilter = f;
+  const track = document.getElementById('gf-tbc-track');
+  const thumb = document.getElementById('gf-tbc-thumb');
+  if (track) track.style.background = f === 'tbc' ? 'var(--primary)' : 'var(--gray-300)';
+  if (thumb) thumb.style.transform  = f === 'tbc' ? 'translateX(16px)' : 'translateX(0)';
+  buildOvGantt();
+}
+
 function renderOverview() {
   destroyChart('effort');
 
@@ -1256,25 +1296,31 @@ function renderOverview() {
           </tr>`;
         }).join('')}</tbody>`;
 
-  // ── Under-Resourced table ──────────────────────────────────────────────
-  const underRes = filtered.filter(p => {
-    const alloc = S.allocations[p.id] || S.allocations[p.name] || S.allocations[p.short];
-    return alloc ? alloc.length < 5 : p.team.length < 5;
-  });
+  // ── Over-Resourced: combine Sheet 4 allocated + Sheet 1 logged; show if combined unique > 7 ──
+  // Source: all known projects (not just filtered) so Sheet 4-only projects are included
+  const allProjIds = [...new Set([...Object.keys(S.allocMeta), ...Object.keys(S.projMeta), ...S.all.map(r => r.pid)])].filter(Boolean);
+  const overResList = allProjIds.map(pid => {
+    const allocSet = new Set(S.allocations[pid] || []);
+    S.all.filter(r => r.pid === pid).forEach(r => allocSet.add(r.user));
+    const startD = S.allocMeta[pid]?.startD || S.projMeta[pid]?.startD || '–';
+    return { pid, members: [...allocSet], startD };
+  }).filter(x => x.members.length > 5 && !/pre.?sale/i.test(getProjectName(x.pid)) && !/pre.?sale/i.test(x.pid))
+    .sort((a, b) => b.members.length - a.members.length);
+
   const ut = document.getElementById('underres-table');
-  ut.innerHTML = !underRes.length
-    ? '<tbody><tr><td colspan="4" style="text-align:center;color:var(--gray-400);padding:24px">✅ All projects are adequately resourced</td></tr></tbody>'
-    : `<thead><tr><th>Project</th><th>Start Date</th><th>Allocated</th><th>Members</th></tr></thead>
-       <tbody>${underRes.map(p => {
-          const alloc  = S.allocations[p.id] || S.allocations[p.name] || S.allocations[p.short] || p.team;
-          const names  = alloc.slice(0,5).join(', ') + (alloc.length > 5 ? ` +${alloc.length-5}` : '');
-          const startD = S.allocMeta[p.id]?.startD || S.projMeta[p.id]?.startD || '–';
+  ut.innerHTML = !overResList.length
+    ? '<tbody><tr><td colspan="4" style="text-align:center;color:var(--gray-400);padding:24px">No projects with more than 7 members</td></tr></tbody>'
+    : `<thead><tr><th>Project</th><th style="text-align:center">Count</th><th>Start Date</th><th>Members</th></tr></thead>
+       <tbody>${overResList.map(({pid, members, startD}) => {
+          const name   = getProjectName(pid);
+          const chips  = members.slice(0, 9).map(n => `<span class="tchip">${initials(n)} ${n.split(' ')[0]}</span>`).join('');
+          const more   = members.length > 9 ? `<span class="tmore">+${members.length - 9}</span>` : '';
           return `<tr>
-            <td><span style="display:inline-block;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700;background:#EF444418;color:#EF4444;margin-right:5px">${esc(p.id)}</span>
-              <strong style="font-family:'Jost',sans-serif;font-size:12px">${esc(p.short)}</strong></td>
+            <td><span style="display:inline-block;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:700;background:#EF444418;color:#EF4444;margin-right:5px">${esc(pid)}</span>
+              <strong style="font-family:'Jost',sans-serif;font-size:12px">${esc(name)}</strong></td>
+            <td style="font-weight:700;color:#EF4444;text-align:center;font-size:15px">${members.length}</td>
             <td style="font-size:11px;color:var(--gray-500);white-space:nowrap">${esc(startD)}</td>
-            <td style="font-weight:700;color:#EF4444;text-align:center">${alloc.length}<span style="font-size:10px;color:var(--gray-400);font-weight:400">/5</span></td>
-            <td style="font-size:11px;color:var(--gray-500)">${names || '–'}</td>
+            <td><div style="display:flex;flex-wrap:wrap;gap:3px">${chips}${more}</div></td>
           </tr>`;
         }).join('')}</tbody>`;
 
@@ -1296,12 +1342,14 @@ function renderOverview() {
         ).join('');
   }
 
-  renderMonthlyChart();
   buildOvGantt();
+  buildTimesheetGantt();
 }
 
 function renderMonthlyChart() {
   destroyChart('monthly');
+  const canvas = document.getElementById('chart-monthly');
+  if (!canvas) return; // card removed from HTML
   const src = S.filt.filter(r => r.date);
   if (!src.length) return;
 
@@ -1391,6 +1439,13 @@ function renderPeople() {
   const proj = document.getElementById('p-proj').value;
   let all    = peopleSumm(S.filt);
 
+  // merge in people from designation list who have no timesheet entries in current filter
+  const activeNames = new Set(all.map(p => p.name));
+  Object.keys(S.desig).forEach(name => {
+    if (activeNames.has(name)) return;
+    all.push({ name, th:0, bh:0, nb:0, tc:0, pids:[], minD:null, maxD:null, expHrs:0, util:0,
+      role:'', email:'', desig: S.desig[name] });
+  });
   // Designation KPI strip (always from full set, not filtered)
   const desigCount = {};
   all.forEach(p => { const d = p.desig || 'Unspecified'; desigCount[d] = (desigCount[d]||0) + 1; });
@@ -1694,8 +1749,18 @@ function buildOvGantt() {
   const allProjs = hasMeta
     ? Object.keys(S.allocMeta).map(pid => tsMap[pid] || { id:pid, th:0, short:getProjectName(pid), team:[] })
     : projSumm(S.all);
+  // apply status/TBC filter before building bars; TBC projects hidden from default view
+  const ganttSource = allProjs.filter(p => {
+    if (S.ganttFilter === 'tbc') return p.id.toUpperCase().includes('TBC');
+    return !p.id.toUpperCase().includes('TBC'); // exclude TBC when toggle is off
+  });
+  // sync toggle switch state on every rebuild
+  const _t = document.getElementById('gf-tbc-track');
+  const _th = document.getElementById('gf-tbc-thumb');
+  if (_t)  _t.style.background  = S.ganttFilter === 'tbc' ? 'var(--primary)' : 'var(--gray-300)';
+  if (_th) _th.style.transform   = S.ganttFilter === 'tbc' ? 'translateX(16px)' : 'translateX(0)';
   const data = [];
-  allProjs.forEach(p => {
+  ganttSource.forEach(p => {
     const am = S.allocMeta[p.id];
     const start = parseXDate(am?.startD || '');
     if (!start) return;
@@ -1707,7 +1772,7 @@ function buildOvGantt() {
     const underResourced = allocated.length > 0 ? allocated.length < 5 : p.team.length < 5;
     data.push({ label:p.short, id:p.id, start, end, hours:p.th, members:allocated,
       underResourced, estimatedEnd,
-      color: underResourced ? '#EF4444' : '#3B82F6' });
+      color: p.id.toUpperCase().includes('TBC') ? '#FF4A03' : '#3B82F6' });
   });
   if (!data.length) return;
 
@@ -1754,7 +1819,7 @@ function buildOvGantt() {
     type:'bar', plugins:[todayLine],
     data:{ labels:data.map(d=>d.label), datasets:[{ label:'Timeline',
       data:data.map(d=>[d.start.getTime(),d.end.getTime()]),
-      backgroundColor:data.map(d=>d.estimatedEnd?'transparent':d.color+'CC'),
+      backgroundColor:data.map(d=>d.estimatedEnd?d.color+'44':d.color+'CC'),
       borderColor:data.map(d=>d.color),
       borderWidth:data.map(d=>d.estimatedEnd?2.5:1.5),
       borderRadius:4, borderSkipped:false, barPercentage:0.6, categoryPercentage:0.85
@@ -1767,8 +1832,7 @@ function buildOvGantt() {
           const d = data[item.dataIndex];
           const names = d.members.slice(0,6).join(', ')+(d.members.length>6?` +${d.members.length-6} more`:'');
           return [` Start: ${fmt(d.start)}`, ` End: ${fmt(d.end)}${d.estimatedEnd?' ⚠️ est.':''}`,
-            ` Logged: ${d.hours.toLocaleString()}h`, ` Members (${d.members.length}): ${names||'–'}`,
-            d.underResourced?' ⚠️ Under-resourced':' ✅ Resourced'];
+            ` Logged: ${d.hours.toLocaleString()}h`, ` Members (${d.members.length}): ${names||'–'}`];
         }
       }}},
       scales:{
@@ -1779,6 +1843,176 @@ function buildOvGantt() {
       }
     }
   });
+}
+
+function buildTimesheetGantt() {
+  destroyChart('tsGantt');
+  const wrap  = document.getElementById('ts-gantt-wrap');
+  const sumEl = document.getElementById('ts-gantt-sum');
+  if (!wrap) return;
+
+  const byPid = grpBy(S.filt, 'pid');
+  const pids  = [...new Set([...Object.keys(S.projMeta), ...Object.keys(byPid)])];
+
+  const data = pids.map(pid => {
+    const meta  = S.projMeta[pid];
+    const rows  = byPid[pid] || [];
+    const th    = +rows.reduce((s, r) => s + r.hours, 0).toFixed(1);
+    const team  = [...new Set(rows.map(r => r.user))];
+    const logDs = rows.map(r => r.date).filter(Boolean);
+    const planStart = meta ? parseXDate(meta.startD) : null;
+    const planEnd   = meta ? parseXDate(meta.endD)   : null;
+    const planH      = planStart && planEnd ? workingDays(planStart, planEnd) * 8 : 0;
+    const inWindowH  = (planStart && planEnd)
+      ? +rows.filter(r => r.date && r.date >= planStart && r.date <= planEnd).reduce((s,r)=>s+r.hours,0).toFixed(1)
+      : 0;
+    const outWindowH = (planStart && planEnd)
+      ? +rows.filter(r => r.date && (r.date < planStart || r.date > planEnd)).reduce((s,r)=>s+r.hours,0).toFixed(1)
+      : 0;
+    return {
+      pid, th, team, planH, inWindowH, outWindowH,
+      label:    getProjectName(pid),
+      planStart, planEnd,
+      actStart:  logDs.length ? new Date(Math.min(...logDs)) : null,
+      actEnd:    logDs.length ? new Date(Math.max(...logDs)) : null,
+    };
+  }).filter(d => (d.planStart || d.actStart) && !/pre.?sale/i.test(d.label) && !/pre.?sale/i.test(d.pid))
+    .sort((a, b) => {
+      const da = (a.planStart || a.actStart)?.getTime() || 0;
+      const db = (b.planStart || b.actStart)?.getTime() || 0;
+      return da - db; // ascending: earliest project at top
+    });
+
+  if (!data.length) return;
+
+  const allTs = data.flatMap(d => [d.planStart, d.planEnd, d.actStart, d.actEnd].filter(Boolean).map(x => x.getTime()));
+  const gmin  = new Date(Math.min(...allTs));
+  const gmax  = new Date(Math.max(...allTs));
+
+  const isSmall = window.innerWidth < 640;
+  const barH    = 38;
+  const chartH  = Math.max(160, data.length * barH + 70);
+  const chartW  = Math.max(wrap.clientWidth || 600, 600);
+  wrap.style.height = Math.min(chartH, 300) + 'px';
+  const canvas  = document.getElementById('ts-gantt-canvas');
+  canvas.style.width = chartW + 'px'; canvas.style.height = chartH + 'px';
+  canvas.width = chartW; canvas.height = chartH;
+
+  // plugin draws vertical dashed lines at planStart and planEnd to mark the project window
+  const dashedPlanPlugin = {
+    id: 'dashedPlan',
+    afterDatasetsDraw(chart) {
+      const ctx  = chart.ctx;
+      const xS   = chart.scales.x;
+      const meta = chart.getDatasetMeta(0);
+      ctx.save(); ctx.setLineDash([5, 3]); ctx.strokeStyle = '#1B1B1B'; ctx.lineWidth = 2;
+      data.forEach((d, i) => {
+        const bar = meta.data[i];
+        if (!bar) return;
+        const props = bar.getProps(['y','height'], true);
+        const h   = Math.abs(props.height);
+        const top = props.y - h / 2 - 4;
+        const bot = props.y + h / 2 + 4;
+        if (d.planStart) {
+          const x = xS.getPixelForValue(d.planStart.getTime());
+          ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke();
+        }
+        if (d.planEnd) {
+          const x = xS.getPixelForValue(d.planEnd.getTime());
+          ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke();
+        }
+      });
+      ctx.setLineDash([]); ctx.restore();
+    }
+  };
+
+  // plugin draws a small label above each bar showing logged hours (or "No logs")
+  const barLabelPlugin = {
+    id: 'barLabels',
+    afterDatasetsDraw(chart) {
+      const ctx  = chart.ctx;
+      const meta = chart.getDatasetMeta(0);
+      ctx.save();
+      ctx.font = '600 10px DM Sans';
+      ctx.textBaseline = 'bottom';
+      meta.data.forEach((bar, i) => {
+        const d = data[i];
+        if (!d) return;
+        const props = bar.getProps(['x','y','base','height'], true);
+        const left  = Math.min(props.x, props.base);
+        const right = Math.max(props.x, props.base);
+        const h     = Math.abs(props.height);
+        const top   = props.y - h / 2;
+        if (right - left < 2) return;
+        const text = d.actStart ? `${d.th.toLocaleString()}h` : 'No logs';
+        ctx.fillStyle = d.actStart ? '#1B1B1B' : '#9A9A9A';
+        ctx.fillText(text, left, top - 1);
+      });
+      ctx.restore();
+    }
+  };
+
+  S.charts.tsGantt = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    plugins: [dashedPlanPlugin, barLabelPlugin],
+    data: {
+      labels: data.map(d => d.label),
+      datasets: [
+        { // solid bar — falls back to planned period (ghost) when no logs so dashed outline still anchors
+          label: 'Logged Activity',
+          data: data.map(d => {
+            if (d.actStart && d.actEnd) return [d.actStart.getTime(), d.actEnd.getTime()];
+            if (d.planStart && d.planEnd) return [d.planStart.getTime(), d.planEnd.getTime()]; // ghost anchor
+            return null;
+          }),
+          backgroundColor: data.map(d => {
+            if (!d.actStart) return 'rgba(0,0,0,0.04)'; // near-invisible for no-log projects
+            if (d.planH > 0) return d.th > d.planH ? '#EF444499' : '#3B82F699';
+            return '#9A9A9A66';
+          }),
+          borderColor: data.map(d => {
+            if (!d.actStart) return 'rgba(0,0,0,0)';
+            if (d.planH > 0) return d.th > d.planH ? '#EF4444' : '#3B82F6';
+            return '#9A9A9A';
+          }),
+          borderWidth: 1.5, borderSkipped: false, borderRadius: 3,
+          barThickness: 18,
+        }
+      ]
+    },
+    options: {
+      indexAxis: 'y', responsive: false, maintainAspectRatio: false,
+      layout: { padding: { top: 10 } },
+      interaction: { mode: 'nearest', axis: 'y', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: items => data[items[0].dataIndex]?.label || '',
+            label: item => {
+              const d = data[item.dataIndex];
+              const lines = [];
+              lines.push(` Sprint: ${d.planStart ? fmt(d.planStart) : '–'} → ${d.planEnd ? fmt(d.planEnd) : 'TBC'}`);
+              lines.push(` Within sprint: ${d.inWindowH.toLocaleString()}h`);
+              if (d.outWindowH > 0) lines.push(` Outside sprint: ${d.outWindowH.toLocaleString()}h`);
+              else lines.push(` Outside sprint: 0h`);
+              return lines;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { type:'time', min: gmin.getTime(), max: gmax.getTime(),
+          time: { unit:'month', displayFormats: { month:'MMM yy' } },
+          grid: { color:'rgba(0,0,0,.04)' },
+          ticks: { font: { family:'DM Sans', size: isSmall ? 9 : 11 }, maxTicksLimit: 12 }
+        },
+        y: { grid: { display:false }, ticks: { font: { family:'DM Sans', size: isSmall ? 10 : 12 } } }
+      }
+    }
+  });
+
+  if (sumEl) sumEl.innerHTML = '';
 }
 
 function openProjGantt() {
